@@ -279,7 +279,7 @@ class DiceRollService {
         
             // Sauvegarde conditionnelle
             if ($save) {
-                $manager = new DataManager();
+                $manager = DataManager::getInstance();
                 $manager->saveRollResult($rollResult, $saveHistory);
             }
         
@@ -293,10 +293,11 @@ class DiceRollService {
 
 // Gestionnaire de données avec historique amélioré
 class DataManager {
+    private static $instance = null;
     private $file = 'simple_dice_data.json';
     private $historyFile = 'dice_history.json';
 
-    public function __construct() {
+    private function __construct() {
         // Crée le fichier de résultat s'il n'existe pas
         if (!file_exists($this->file)) {
             file_put_contents($this->file, json_encode([]));
@@ -306,6 +307,21 @@ class DataManager {
             file_put_contents($this->historyFile, json_encode([]));
         }
     }
+
+    // Empêche le clonage de l'instance
+    private function __clone() {}
+
+    // Empêche la désérialisation
+    private function __wakeup() {}
+
+
+    public static function getInstance(): self {
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
     
     public function saveRollResult(DiceRollResult $rollResult, $saveHistory = false) {
         $data = $rollResult->toArray();
@@ -359,7 +375,7 @@ class DataManager {
 
 // === TRAITEMENT DES REQUÊTES ===
 
-$manager = new DataManager();
+$manager = DataManager::getInstance();
 
 if (($_POST['action'] ?? '') === 'roll') {
     try {
