@@ -1,0 +1,311 @@
+<?php
+$data = file_exists('simple_dice_data.json') ? json_decode(file_get_contents('simple_dice_data.json'), true) : null;
+?>
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Dés D&D</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<div class="container">
+    <div class="header-container">
+        <h1>Dés D&D</h1>
+        <div id="Dice20"></div>
+    </div>
+
+    <div class="dice-selector">
+        <?php foreach (['d4','d6','d8','d10','d12','d20','d100'] as $dice): ?>
+            <button class="dice-btn<?= $dice === 'd4' ? ' active' : '' ?>" onclick="selectDice('<?= $dice ?>', this)"><?= strtoupper($dice) ?></button>
+        <?php endforeach; ?>
+    </div>
+
+    <div class="input-group">
+        <label for="diceCount">Nombre de dés :</label>
+        <input type="number" id="diceCount" value="1" min="1" max="20">
+    </div>
+
+    <button class="roll-btn" onclick="rollDice()">Lancer</button>
+
+    <div id="result">
+        <?php if ($data): ?>
+            <?php if (isset($data['results']) && is_array($data['results'])): ?>
+                <h2><?= htmlspecialchars($data['total']) ?></h2>
+                <p>Total : <?= htmlspecialchars($data['count']) ?><?= htmlspecialchars(strtoupper($data['dice'])) ?></p>
+                <p>Détail : [<?= htmlspecialchars(implode(', ', $data['results'])) ?>]</p>
+            <?php else: ?>
+                <h2><?= htmlspecialchars($data['result']) ?></h2>
+                <p>Dé : <?= htmlspecialchars(strtoupper($data['dice'])) ?></p>
+            <?php endif; ?>
+        <?php else: ?>
+            <h2>?</h2>
+            <p>Aucun lancer</p>
+        <?php endif; ?>
+    </div>
+
+    <!-- Section Historique -->
+    <div class="history-section">
+        <div class="history-header">
+            <h2>Historique des Lancers</h2>
+            <div class="history-controls">
+                <button class="history-btn" onclick="toggleHistory()">
+                    <span id="historyToggleText">Afficher</span>
+                </button>
+                <button class="clear-btn" onclick="clearHistory()">Vider</button>
+            </div>
+        </div>
+        
+        <div id="historyContainer" class="history-container" style="display: none;">
+            <div id="historyList" class="history-list">
+                <!-- L'historique sera chargé ici -->
+            </div>
+        </div>
+    </div>
+
+    <!-- <div id="Dice20"></div> -->
+</div>
+
+<script>
+    let currentDice = 'd4';
+    let historyVisible = false;
+
+    function selectDice(dice, btn) {
+        document.querySelectorAll('.dice-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentDice = dice;
+    }
+
+    function rollDice(saveResult = true) {
+        const diceCount = document.getElementById('diceCount').value;
+        const saveHistory = true;
+
+        fetch('api.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=roll&dice=${currentDice}&count=${diceCount}&save=${saveResult ? '1' : '0'}&history=${saveHistory ? '1' : '0'}`
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                updateResult(data);
+                if (data.history_saved && historyVisible) {
+                    loadHistory(); // Recharger l'historique si visible
+                }
+            }
+        });
+    }
+
+    // Fonction pour basculer l'affichage de l'historique
+    function toggleHistory() {
+        const container = document.getElementById('historyContainer');
+        const toggleText = document.getElementById('historyToggleText');
+        
+        if (historyVisible) {
+            container.style.display = 'none';
+            toggleText.textContent = 'Afficher';
+            historyVisible = false;
+        } else {
+            container.style.display = 'block';
+            toggleText.textContent = 'Masquer';
+            historyVisible = true;
+            loadHistory();
+        }
+    }
+
+    // Fonction pour charger l'historique
+    function loadHistory() {
+        fetch('api.php?action=history')
+        .then(res => res.json())
+        .then(history => {
+            displayHistory(history);
+        })
+        .catch(err => {
+            console.error('Erreur lors du chargement de l\'historique:', err);
+        });
+    }
+
+    // Fonction pour afficher l'historique
+    function displayHistory(history) {
+        const historyList = document.getElementById('historyList');
+        
+        if (!history || history.length === 0) {
+            historyList.innerHTML = '<p class="no-history">Aucun historique disponible</p>';
+            return;
+        }
+
+        let html = '';
+        history.forEach((entry, index) => {
+            const isMultiple = entry.results && Array.isArray(entry.results);
+            const criticalClass = getCriticalClass(entry);
+            
+            html += `
+                <div class="history-item ${criticalClass}">
+                    <div class="history-header-item">
+                        <span class="history-dice">${entry.dice.toUpperCase()}</span>
+                        <span class="history-time">${formatTimestamp(entry.timestamp)}</span>
+                    </div>
+                    <div class="history-result">
+                        ${isMultiple ? 
+                            `<span class="history-total">Total: ${entry.total}</span>
+                             <span class="history-detail">[${entry.results.join(', ')}]</span>` :
+                            `<span class="history-single">${entry.result || entry.total}</span>`
+                        }
+                    </div>
+                    ${getCriticalText(entry)}
+                </div>
+            `;
+        });
+        
+        historyList.innerHTML = html;
+    }
+
+    // Fonction pour déterminer la classe CSS selon le résultat critique
+    function getCriticalClass(entry) {
+        if (entry.dice === 'd20' && entry.count === 1) {
+            if (entry.is_critical_hit) return 'critical-success';
+            if (entry.is_critical_fail) return 'critical-fail';
+        }
+        return '';
+    }
+
+    // Fonction pour afficher le texte critique
+    function getCriticalText(entry) {
+        if (entry.dice === 'd20' && entry.count === 1) {
+            if (entry.is_critical_hit) return '<div class="critical-text">Critique Réussi !</div>';
+            if (entry.is_critical_fail) return '<div class="critical-text">Échec Critique !</div>';
+        }
+        return '';
+    }
+
+    // Fonction pour formater le timestamp
+    function formatTimestamp(timestamp) {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diff = now - date;
+        
+        // Si c'est aujourd'hui, afficher seulement l'heure
+        if (date.toDateString() === now.toDateString()) {
+            return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        // Sinon afficher la date et l'heure
+        return date.toLocaleString('fr-FR', { 
+            day: '2-digit', 
+            month: '2-digit', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+    }
+
+    // Fonction pour vider l'historique
+    function clearHistory() {
+        if (!confirm('Êtes-vous sûr de vouloir vider l\'historique ?')) {
+            return;
+        }
+
+        fetch('api.php?action=clear_history', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'action=clear_history'
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                if (historyVisible) {
+                    loadHistory(); // Recharger l'historique vide
+                }
+                console.log('Historique vidé');
+            }
+        })
+        .catch(err => {
+            console.error('Erreur lors de la suppression:', err);
+        });
+    }
+
+    function updateResult(data) {
+        let html = '';
+
+        if (data.results && Array.isArray(data.results)) {
+            html = `
+                <h2>${data.total}</h2>
+                <p>Total : ${data.count}${data.dice.toUpperCase()}</p>
+                <p>Détail : [${data.results.join(', ')}]</p>
+            `;
+        } else {
+            html = `
+                <h2>${data.result}</h2>
+                <p>Dé : ${data.dice.toUpperCase()}</p>
+            `;
+        }
+
+        // Ajout des informations critiques pour le D20
+        if (data.is_critical_hit) {
+            html += '<p class="critical-success">Critique Réussi !</p>';
+        } else if (data.is_critical_fail) {
+            html += '<p class="critical-fail">Échec Critique !</p>';
+        }
+
+        document.getElementById('result').innerHTML = html;
+    }
+
+    setInterval(() => {
+        fetch('api.php?action=get')
+        .then(r => r.json())
+        .then(data => {
+            if (data && (data.result || data.total)) {
+                updateResult(data);
+            }
+        });
+        loadHistory();
+    }, 500);
+
+    // === THREE.JS POUR LE DÉ D20 ===
+    let scene, camera, renderer, dice;
+
+    function init() {
+        scene = new THREE.Scene();
+
+        const container = document.getElementById('Dice20');
+
+        // camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 1000);
+        camera = new THREE.PerspectiveCamera(75, 120/80, 0.1, 1000); // Ratio 120/80
+        camera.position.z = 4 ; // Plus proche pour un petit container
+        // camera.position.z = 5;
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setClearColor(0x000000, 0);
+        // renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setSize(120, 80);
+        container.appendChild(renderer.domElement);
+
+        const geometry = new THREE.IcosahedronGeometry(2, 0);
+        const material = new THREE.MeshLambertMaterial({ color: 0x6d4c41 });
+
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        dice = new THREE.Mesh(geometry, material);
+        scene.add(dice);
+
+        animate();
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        dice.rotation.x += 0.01;
+        dice.rotation.y += 0.02;
+        renderer.render(scene, camera);
+    }
+
+    init();
+</script>
+</body>
+</html>
