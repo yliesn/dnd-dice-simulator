@@ -295,6 +295,17 @@ class DiceRollService {
 class DataManager {
     private $file = 'simple_dice_data.json';
     private $historyFile = 'dice_history.json';
+
+    public function __construct() {
+        // Crée le fichier de résultat s'il n'existe pas
+        if (!file_exists($this->file)) {
+            file_put_contents($this->file, json_encode([]));
+        }
+        // Crée le fichier d'historique s'il n'existe pas
+        if (!file_exists($this->historyFile)) {
+            file_put_contents($this->historyFile, json_encode([]));
+        }
+    }
     
     public function saveRollResult(DiceRollResult $rollResult, $saveHistory = false) {
         $data = $rollResult->toArray();
@@ -334,7 +345,11 @@ class DataManager {
     }
     
     public function getHistory() {
-        return file_exists($this->historyFile) ? json_decode(file_get_contents($this->historyFile), true) : [];
+        if (!file_exists($this->historyFile)) return [];
+        $content = file_get_contents($this->historyFile);
+        if (empty($content)) return [];
+        $json = json_decode($content, true);
+        return is_array($json) ? $json : [];
     }
     
     public function clearHistory() {
