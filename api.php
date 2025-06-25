@@ -1,7 +1,9 @@
 <?php
 // api.php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0); // Désactive l'affichage des erreurs dans la réponse HTTP
+ini_set('log_errors', 1); // Active le log des erreurs
+ini_set('error_log', __DIR__ . '/php-error.log'); // Définit le fichier de log
 header('Content-Type: application/json; charset=utf-8');
 
 $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
@@ -49,8 +51,6 @@ abstract class BaseDice implements DiceInterface {
         return $this->name;
     }
 }
-
-// je suis ylies et jsuis gay
 
 // Classes spécifiques pour chaque type de dé
 class D4 extends BaseDice {
@@ -405,4 +405,3 @@ if (($_POST['action'] ?? '') === 'clear_history') {
     echo json_encode(['success' => $cleared]);
     exit;
 }
-?>
